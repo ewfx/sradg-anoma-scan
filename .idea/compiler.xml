@@ -6,8 +6,11 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="sradg-anoma-scan" />
+        <module name="reconciliation-anomaly-detector" />
       </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="sradg-anoma-scan" target="11" />
+    </bytecodeTargetLevel>
   </component>
 </project>
