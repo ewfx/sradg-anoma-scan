@@ -1,21 +1,41 @@
 package com.anomaly.reconcilation.detection;
 
+
 import com.opencsv.CSVReader;
 import com.opencsv.CSVWriter;
 import javax.mail.*;
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
+import org.datavec.api.records.reader.impl.csv.CSVRecordReader;
+import org.datavec.api.split.FileSplit;
+import org.deeplearning4j.datasets.datavec.RecordReaderDataSetIterator;
+import org.deeplearning4j.nn.api.OptimizationAlgorithm;
+import org.deeplearning4j.nn.conf.MultiLayerConfiguration;
+import org.deeplearning4j.nn.conf.NeuralNetConfiguration;
+import org.deeplearning4j.nn.conf.layers.DenseLayer;
+import org.deeplearning4j.nn.conf.layers.OutputLayer;
+import org.deeplearning4j.nn.multilayer.MultiLayerNetwork;
+import org.deeplearning4j.nn.weights.WeightInit;
+import org.nd4j.linalg.activations.Activation;
+import org.nd4j.linalg.api.ndarray.INDArray;
+import org.nd4j.linalg.dataset.DataSet;
+import org.nd4j.linalg.dataset.api.iterator.DataSetIterator;
+import org.nd4j.linalg.factory.Nd4j;
+import org.nd4j.linalg.learning.config.Adam;
+import org.nd4j.linalg.lossfunctions.LossFunctions;
+
 import java.io.*;
 import java.util.*;
+import java.util.stream.Collectors;
 
+/**
+ * Main class to detect anomalies in financial reconciliation data using DeepLearning4J.
+ */
 public class ReconciliationAnomalyDetector {
 
-    private Map<String, Double> meanBalanceDiffByAccount;
-    private Map<String, Double> stdDevBalanceDiffByAccount;
-    private double glMean;
-    private double glStdDev;
-    private double iHubMean;
-    private double iHubStdDev;
+    private MultiLayerNetwork autoencoder;
+    private double[] featureMeans;
+    private double[] featureStds;
 
     /**
      * Main method to execute the anomaly detection process.
@@ -37,7 +57,7 @@ public class ReconciliationAnomalyDetector {
             return;
         }
 
-        computeHistoricalStats(historicalRows);
+        trainAutoencoder(historicalRows);
         List<String[]> realTimeRows = createRealTimeData();
         List<String[]> updatedRows = detectAnomalies(realTimeRows);
         writeOutputData(updatedRows, Constants.OUTPUT_FILE_PATH);
@@ -64,50 +84,63 @@ public class ReconciliationAnomalyDetector {
     }
 
     /**
-     * Computes historical statistics (mean and standard deviation) for balance differences,
-     * GL balances, and iHub balances.
+     * Trains an Autoencoder on historical data to learn normal patterns.
      *
      * @param historicalRows List of historical data rows.
      */
-    private void computeHistoricalStats(List<String[]> historicalRows) {
-        List<RowData> historicalData = new ArrayList<>();
+    private void trainAutoencoder(List<String[]> historicalRows) {
+        List<double[]> featuresList = new ArrayList<>();
         for (int i = 1; i < historicalRows.size(); i++) { // Skip header
             String[] row = historicalRows.get(i);
-            double balanceDiff = Double.parseDouble(row[8]);
             double glBalance = Double.parseDouble(row[6]);
             double iHubBalance = Double.parseDouble(row[7]);
-            String account = row[2];
-            String comments = row[10];
-            historicalData.add(new RowData(balanceDiff, glBalance, iHubBalance, account, comments));
+            double balanceDiff = Double.parseDouble(row[8]);
+            featuresList.add(new double[]{glBalance, iHubBalance, balanceDiff});
         }
 
-        // Compute mean and std dev for balance differences per account
-        Map<String, List<Double>> balanceDiffByAccount = new HashMap<>();
-        for (RowData data : historicalData) {
-            balanceDiffByAccount.computeIfAbsent(data.account, k -> new ArrayList<>()).add(data.balanceDifference);
+        // Convert to INDArray
+        INDArray features = Nd4j.create(featuresList);
+
+        // Normalize the features
+        featureMeans = new double[Constants.INPUT_SIZE];
+        featureStds = new double[Constants.INPUT_SIZE];
+        for (int i = 0; i < Constants.INPUT_SIZE; i++) {
+            featureMeans[i] = features.getColumn(i).meanNumber().doubleValue();
+            featureStds[i] = features.getColumn(i).stdNumber().doubleValue();
+            if (featureStds[i] == 0) featureStds[i] = 1.0; // Avoid division by zero
+            features.putColumn(i, features.getColumn(i).subi(featureMeans[i]).divi(featureStds[i]));
         }
 
-        meanBalanceDiffByAccount = new HashMap<>();
-        stdDevBalanceDiffByAccount = new HashMap<>();
-        for (String account : balanceDiffByAccount.keySet()) {
-            List<Double> diffs = balanceDiffByAccount.get(account);
-            double mean = diffs.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
-            double stdDev = Math.sqrt(diffs.stream()
-                    .mapToDouble(val -> Math.pow(val - mean, 2))
-                    .average().orElse(0.0));
-            meanBalanceDiffByAccount.put(account, mean);
-            stdDevBalanceDiffByAccount.put(account, stdDev);
-        }
+        // Create DataSet
+        DataSet dataSet = new DataSet(features, features); // Autoencoder: input = output
 
-        // Compute mean and std dev for GL and iHub balances
-        glMean = historicalData.stream().mapToDouble(data -> data.glBalance).average().orElse(0.0);
-        glStdDev = Math.sqrt(historicalData.stream()
-                .mapToDouble(data -> Math.pow(data.glBalance - glMean, 2))
-                .average().orElse(0.0));
-        iHubMean = historicalData.stream().mapToDouble(data -> data.iHubBalance).average().orElse(0.0);
-        iHubStdDev = Math.sqrt(historicalData.stream()
-                .mapToDouble(data -> Math.pow(data.iHubBalance - iHubMean, 2))
-                .average().orElse(0.0));
+        // Build the Autoencoder
+        MultiLayerConfiguration conf = new NeuralNetConfiguration.Builder()
+                .seed(12345)
+                .optimizationAlgo(OptimizationAlgorithm.STOCHASTIC_GRADIENT_DESCENT)
+                .updater(new Adam(Constants.LEARNING_RATE))
+                .list()
+                .layer(0, new DenseLayer.Builder()
+                        .nIn(Constants.INPUT_SIZE)
+                        .nOut(Constants.HIDDEN_SIZE)
+                        .activation(Activation.RELU)
+                        .weightInit(WeightInit.XAVIER)
+                        .build())
+                .layer(1, new DenseLayer.Builder()
+                        .nIn(Constants.HIDDEN_SIZE)
+                        .nOut(Constants.INPUT_SIZE)
+                        .activation(Activation.IDENTITY)
+                        .weightInit(WeightInit.XAVIER)
+                        .build())
+                .build();
+
+        autoencoder = new MultiLayerNetwork(conf);
+        autoencoder.init();
+
+        // Train the Autoencoder
+        for (int i = 0; i < Constants.EPOCHS; i++) {
+            autoencoder.fit(dataSet);
+        }
     }
 
     /**
@@ -127,7 +160,7 @@ public class ReconciliationAnomalyDetector {
     }
 
     /**
-     * Detects anomalies in the real-time data and adds is_anomaly and anomaly_reason columns.
+     * Detects anomalies in the real-time data using the trained Autoencoder.
      *
      * @param realTimeRows List of real-time data rows.
      * @return Updated list of rows with anomaly detection results.
@@ -139,26 +172,28 @@ public class ReconciliationAnomalyDetector {
         for (int i = 1; i < realTimeRows.size(); i++) {
             String[] row = realTimeRows.get(i);
             List<String> newRow = new ArrayList<>(List.of(row));
-            double balanceDiff = Double.parseDouble(row[8]);
-            double absBalanceDiff = Math.abs(balanceDiff);
             double glBalance = Double.parseDouble(row[6]);
             double iHubBalance = Double.parseDouble(row[7]);
-            String account = row[2];
+            double balanceDiff = Double.parseDouble(row[8]);
             String comments = row[10];
 
-            // Statistical check: Z-score
-            double meanBalanceDiff = meanBalanceDiffByAccount.getOrDefault(account, 0.0);
-            double stdDevBalanceDiff = stdDevBalanceDiffByAccount.getOrDefault(account, 0.0);
-            boolean isStatisticalAnomaly = stdDevBalanceDiff > 0 && Math.abs(balanceDiff - meanBalanceDiff) > Constants.Z_SCORE_THRESHOLD * stdDevBalanceDiff;
+            // Normalize the input
+            double[] input = new double[]{glBalance, iHubBalance, balanceDiff};
+            for (int j = 0; j < input.length; j++) {
+                input[j] = (input[j] - featureMeans[j]) / featureStds[j];
+            }
 
-            // Rule-based check
-            boolean isRuleBasedAnomaly = absBalanceDiff > Constants.BALANCE_DIFF_THRESHOLD;
+            // Compute reconstruction error
+            INDArray inputArray = Nd4j.create(input);
+            INDArray outputArray = autoencoder.output(inputArray);
+            double reconstructionError = inputArray.distance2(outputArray);
 
-            // Combine checks
-            String isAnomaly = (isStatisticalAnomaly || isRuleBasedAnomaly) ? "Yes" : "No";
+            // Flag as anomaly if reconstruction error exceeds threshold
+            String isAnomaly = reconstructionError > Constants.RECONSTRUCTION_ERROR_THRESHOLD ? "Yes" : "No";
             String anomalyReason = comments.isEmpty() ? "No anomaly detected" : comments;
 
             if (isAnomaly.equals("Yes") && comments.isEmpty()) {
+                double absBalanceDiff = Math.abs(balanceDiff);
                 if (absBalanceDiff > 10000) {
                     anomalyReason = "Huge spike in outstanding balances";
                 } else if (absBalanceDiff >= 1000) {
@@ -168,7 +203,6 @@ public class ReconciliationAnomalyDetector {
                 anomalyReason = "Difference is within tolerance";
             }
 
-            // Add the new columns (is_anomaly and anomaly_reason)
             newRow.add(isAnomaly);
             newRow.add(anomalyReason);
             updatedRows.add(newRow.toArray(new String[0]));

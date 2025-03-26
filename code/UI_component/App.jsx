@@ -12,7 +12,7 @@ export default function App() {
   ]);
   const styles = {
   botAnimation: {
-    animation: 'moveBot 1s infinite'
+    animation: 'moveBot 1s infinite'main
   },
   '@keyframes moveBot': {
     '0%, 100%': { transform: 'translateX(0)' },
