@@ -31,7 +31,7 @@ A "Send Email Notification" button triggers an email with the results.
   Notification: Sends an email notification with the results, ensuring stakeholders are informed.
   Proposed UI Dashboard: Allows users to upload historical data, view the number of anomalies, and send email notifications with a single click.
 - [How We Built It](#how-we-built-it)
-- Data Processing:
+- Data Processing
   Used Java to read historical data from input_data.csv and process real-time data (hardcoded for now).
   Extracted features (GL Balance, iHub Balance, Balance Difference) for training the Autoencoder.
   Autoencoder with DeepLearning4J:
