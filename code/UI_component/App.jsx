@@ -6,13 +6,14 @@ import 'react-toastify/dist/ReactToastify.css';
 
 export default function App() {
   const [isAnimating, setIsAnimating] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState(null);
   const [gridData, setGridData] = useState([
     { file: "file1.xlsx", anomalies: 10, comments: "", ticketId: "#1234", status: "Open", anomalyStatus: "Pending", outputFile: "output1.xlsx", isEditing: true },
     { file: "file2.xlsx", anomalies: 7, comments: "", ticketId: "#1235", status: "Closed", anomalyStatus: "Resolved", outputFile: "output2.xlsx", isEditing: true },
   ]);
   const styles = {
   botAnimation: {
-    animation: 'moveBot 1s infinite'main
+    animation: 'moveBot 1s infinite'
   },
   '@keyframes moveBot': {
     '0%, 100%': { transform: 'translateX(0)' },
@@ -22,7 +23,20 @@ export default function App() {
 
   const [showNotifications, setShowNotifications] = useState(false);
   const [showProfileOptions, setShowProfileOptions] = useState(false);
+  const handleFileChange = (e) => {
+    const file = e.target.files[0];
+    if (file && (file.name.endsWith('.xls') || file.name.endsWith('.xlsx'))) {
+      setUploadedFile(file);
+    } else {
+      toast.error("Please upload a valid Excel file (.xls or .xlsx)");
+      e.target.value = ""; // Reset the input
+    }
+  };
   const handleGoSaraClick = () => {
+    if (!uploadedFile) {
+      toast.error("Please upload a transaction details Excel file before triggering Go SARA!");
+      return;
+    }
 	toast.success("Go SARA Triggered!!");
     setIsAnimating(true);
     setTimeout(() => {
@@ -181,6 +195,7 @@ export default function App() {
               type="file"
               accept=".xls,.xlsx"
               className="border border-gray-300 p-2 rounded-lg w-full mb-4"
+              onChange={handleFileChange}
             />
             <div className="flex justify-center mt-2 space-x-4">
               <div>
@@ -284,7 +299,7 @@ export default function App() {
           </ResponsiveContainer>
         </div>
       </div>
-      
+
     </div>
   );
 }
