@@ -56,14 +56,15 @@ A "Send Email Notification" button triggers an email with the results.
 - Compile and run the Java code
 - [Tech Stack](#tech-stack)
 - Backend:
-- Dl4J: Deeplearning for anomaly detection.
-  Java: Core language for data processing.
-  OpenCSV: Library for reading and writing CSV files.
-  JavaMail API: For sending email notifications.
-  Proposed Frontend (Wireframe):
-  HTML/CSS/JavaScript: For the UI dashboard (future implementation).
-  React (suggested): For building an interactive dashboard.
-  Tools:
+  - Dl4J: Deeplearning for anomaly detection.
+    Java: Core language for data processing.
+    OpenCSV: Library for reading and writing CSV files.
+    JavaMail API: For sending email notifications.
+    Proposed Frontend (Wireframe):
+- Frontend:
+  - HTML/CSS/JavaScript: For the UI dashboard
+  - React framework: For building an interactive dashboard.
+- Tools:
   Maven: Dependency management.
   SMTP Server: For email notifications (e.g., Gmail SMTP).
 - [Team](#team)
